@@ -102,6 +102,39 @@ export class AnythingLLMClient {
             return false;
         }
     }
+    /**
+   * Upload raw text document ke AnythingLLM
+   */
+    async uploadRawDocument(filename: string, content: string): Promise<boolean> {
+        try {
+        this.outputChannel.appendLine(`[UPLOAD] Mengupload: ${filename} (${(content.length / 1024).toFixed(1)} KB)`);
+        await this.client.post('/document/raw', {
+            name: filename,
+            content: content,
+            mode: 'embed' // Mode embed agar langsung diproses untuk RAG
+        });
+        return true;
+        } catch (error: any) {
+        this.outputChannel.appendLine(`[UPLOAD] Gagal upload ${filename}: ${error.message}`);
+        return false;
+        }
+    }
 
+    /**
+     * Trigger update embeddings di workspace
+     */
+    async triggerWorkspaceSync(fileNames: string[]): Promise<boolean> {
+        try {
+        this.outputChannel.appendLine(`[SYNC] Meminta AnythingLLM memproses ${fileNames.length} file baru...`);
+        await this.client.post(`/workspace/${this.workspaceSlug}/update-embeddings`, {
+            adds: fileNames,
+            deletes: []
+        });
+        return true;
+        } catch (error: any) {
+        this.outputChannel.appendLine(`[SYNC] Gagal trigger sync: ${error.message}`);
+        return false;
+        }
+    }
     getSlug(): string { return this.workspaceSlug; }
 }

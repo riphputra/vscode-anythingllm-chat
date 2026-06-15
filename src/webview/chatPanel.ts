@@ -31,6 +31,9 @@ export class ChatPanel {
                     case 'testConnection':
                         await this.handleTestConnection();
                         break;
+                    case 'syncProject':
+                        await this.handleSyncProject();
+                        break;
                     case 'clearHistory':
                         this.projectContext = '';
                         this.panel.webview.postMessage({ command: 'historyCleared' });
@@ -177,7 +180,75 @@ export class ChatPanel {
         
         this.panel.webview.postMessage({ command: 'setLoading', value: false });
     }
-
+    private async handleSyncProject() {
+        this.panel.webview.postMessage({ command: 'setLoading', value: true });
+        
+        try {
+          const workspaceFolders = vscode.workspace.workspaceFolders;
+          if (!workspaceFolders) {
+            throw new Error('Tidak ada workspace yang terbuka.');
+          }
+    
+          const reader = new WorkspaceReader();
+          const { files, stats } = await reader.scanWorkspace();
+    
+          if (files.length === 0) {
+            throw new Error('Tidak ada file yang bisa di-scan (mungkin semua di-exclude atau binary).');
+          }
+    
+          this.panel.webview.postMessage({
+            command: 'addMessage',
+            role: 'ai',
+            text: `📤 Memulai sync ${files.length} file ke AnythingLLM... Mohon tunggu.`
+          });
+    
+          // Gunakan progress bar native VS Code
+          await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Syncing Project to AnythingLLM',
+            cancellable: false
+          }, async (progress) => {
+            const uploadedFiles: string[] = [];
+            let failedCount = 0;
+    
+            for (let i = 0; i < files.length; i++) {
+              progress.report({ message: `Uploading ${files[i].relativePath} (${i + 1}/${files.length})`, increment: (1 / files.length) * 100 });
+              
+              const success = await this.client.uploadRawDocument(files[i].relativePath, files[i].content);
+              if (success) {
+                uploadedFiles.push(files[i].relativePath);
+              } else {
+                failedCount++;
+              }
+              
+              // Jeda 300ms untuk menghindari rate limit API
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+    
+            if (uploadedFiles.length > 0) {
+              progress.report({ message: 'Triggering AI Embedding Process...', increment: 100 });
+              await this.client.triggerWorkspaceSync(uploadedFiles);
+            }
+    
+            const successMsg = `✅ **Sync Selesai!**\n📤 Berhasil: ${uploadedFiles.length} file\n❌ Gagal/Skip: ${failedCount} file\n\nAI sekarang bisa membaca file-file tersebut saat Anda bertanya.`;
+            
+            this.panel.webview.postMessage({
+              command: 'addMessage',
+              role: 'ai',
+              text: successMsg
+            });
+          });
+    
+        } catch (error: any) {
+          this.panel.webview.postMessage({
+            command: 'addMessage',
+            role: 'ai',
+            text: `❌ **Sync Gagal:** ${error.message}`
+          });
+        } finally {
+          this.panel.webview.postMessage({ command: 'setLoading', value: false });
+        }
+    }
     private formatSize(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -280,11 +351,14 @@ export class ChatPanel {
             resize: none; min-height: 38px; max-height: 120px;
         }
         #userInput:focus { outline: 1px solid var(--vscode-focusBorder); }
+        #syncBtn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+        #syncBtn:hover { background: var(--vscode-button-hoverBackground); }
         #sendBtn {
             padding: 10px 18px; background: var(--vscode-button-background);
             color: var(--vscode-button-foreground); border: none;
             border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
         }
+        
         #sendBtn:hover { background: var(--vscode-button-hoverBackground); }
         #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
         ::-webkit-scrollbar { width: 8px; }
@@ -307,7 +381,8 @@ export class ChatPanel {
     </div>
 
     <div class="toolbar">
-        <button id="scanBtn" title="Scan seluruh project"><span>🔍</span> Scan Project</button>
+        <button id="syncBtn" title="Upload project ke AnythingLLM"><span>📤</span> Sync Project</button>
+        <button id="scanBtn" title="Scan project lokal"><span>🔍</span> Scan Project</button>
         <button id="testBtn" title="Test koneksi ke AnythingLLM"><span>🔌</span> Test Connection</button>
         <button id="clearBtn" title="Hapus history chat"><span>🗑️</span> Clear</button>
     </div>
@@ -330,12 +405,15 @@ export class ChatPanel {
         const clearBtn = document.getElementById('clearBtn');
         const statusDot = document.getElementById('statusDot');
         const projectStats = document.getElementById('projectStats');
+        const syncBtn = document.getElementById('syncBtn');
+        
 
         addMessage('ai', '👋 Halo! Saya AI Assistant Anda yang terhubung ke AnythingLLM.\\n\\n**Langkah pertama:** Klik tombol **🔍 Scan Project** agar saya bisa melihat seluruh kode di project Anda.\\n\\nAtau klik **🔌 Test Connection** untuk memastikan server bisa dihubungi.');
 
         sendBtn.addEventListener('click', sendMessage);
         scanBtn.addEventListener('click', () => vscode.postMessage({ command: 'scanWorkspace' }));
         testBtn.addEventListener('click', () => vscode.postMessage({ command: 'testConnection' }));
+        syncBtn.addEventListener('click', () => vscode.postMessage({ command: 'syncProject' }));
         clearBtn.addEventListener('click', () => {
             chatContainer.innerHTML = '';
             vscode.postMessage({ command: 'clearHistory' });
