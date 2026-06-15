@@ -1,0 +1,114 @@
+{
+    "name": "anythingllm-assistant",
+    "displayName": "AnythingLLM Assistant",
+    "description": "AI Chat & Agent Assistant powered by your AnythingLLM instance",
+    "version": "1.0.0",
+    "license": "MIT",
+    "publisher": "riphputra",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/riphputra/AnythingLLM"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Other",
+        "Machine Learning"
+    ],
+    "activationEvents": [],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "anythingllm.openChat",
+                "title": "Open AnythingLLM Chat",
+                "icon": "$(comment-discussion)"
+            },
+            {
+                "command": "anythingllm.scanWorkspace",
+                "title": "Scan Workspace for AnythingLLM"
+            },
+            {
+                "command": "anythingllm.clearHistory",
+                "title": "Clear Chat History"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "anythingllm-sidebar",
+                    "title": "AnythingLLM",
+                    "icon": "$(robot)"
+                }
+            ]
+        },
+        "views": {
+            "anythingllm-sidebar": [
+                {
+                    "type": "webview",
+                    "id": "anythingllm.chatView",
+                    "name": "AI Chat"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "AnythingLLM Assistant",
+            "properties": {
+                "anythingllm.serverUrl": {
+                    "type": "string",
+                    "default": "localhost:3001",
+                    "description": "URL server AnythingLLM Anda"
+                },
+                "anythingllm.apiKey": {
+                    "type": "string",
+                    "default": "",
+                    "description": "API Key AnythingLLM (dapatkan dari Settings > API Keys)"
+                },
+                "anythingllm.workspaceSlug": {
+                    "type": "string",
+                    "default": "my-project",
+                    "description": "Slug workspace AnythingLLM (nama workspace di URL)"
+                },
+                "anythingllm.excludePatterns": {
+                    "type": "array",
+                    "default": [
+                        "**/node_modules/**",
+                        "**/.git/**",
+                        "**/dist/**",
+                        "**/build/**",
+                        "**/.vscode/**",
+                        "**/out/**",
+                        "**/.next/**",
+                        "**/__pycache__/**",
+                        "**/*.pyc",
+                        "**/venv/**",
+                        "**/.env"
+                    ],
+                    "description": "Pattern folder/file yang dikecualikan dari scan"
+                },
+                "anythingllm.maxFileSize": {
+                    "type": "number",
+                    "default": 100000,
+                    "description": "Ukuran maksimal file (bytes) yang akan dibaca"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "vsce package"
+    },
+    "devDependencies": {
+        "@types/node": "^20.19.43",
+        "@types/vscode": "1.85.0",
+        "@vscode/vsce": "^2.32.0",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "axios": "^1.18.0",
+        "glob": "^10.5.0"
+    }
+}
