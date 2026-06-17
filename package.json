@@ -2,7 +2,7 @@
     "name": "anythingllm-assistant",
     "displayName": "AnythingLLM Assistant",
     "description": "AI Chat & Agent Assistant powered by your AnythingLLM instance",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "license": "MIT",
     "publisher": "riphputra",
     "repository": {
