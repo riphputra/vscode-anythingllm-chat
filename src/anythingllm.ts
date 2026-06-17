@@ -37,7 +37,7 @@ export class AnythingLLMClient {
 
         this.client = axios.create({
             baseURL: `${serverUrl}/api/v1`,
-            timeout: 60000,
+            timeout: 1800000,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
