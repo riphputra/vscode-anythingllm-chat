@@ -2,9 +2,10 @@
     "name": "anythingllm-assistant",
     "displayName": "AnythingLLM Assistant",
     "description": "AI Chat & Agent Assistant powered by your AnythingLLM instance",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "license": "MIT",
     "publisher": "riphputra",
+    "icon": "icon.png",
     "repository": {
         "type": "git",
         "url": "https://github.com/riphputra/vscode-anythingllm-chat"
