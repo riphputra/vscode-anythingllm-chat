@@ -1,24 +1,44 @@
 import * as vscode from 'vscode';
 import { AnythingLLMClient } from '../anythingllm';
 import { WorkspaceReader } from '../workspaceReader';
+import { TagManager } from '../agent/TagManager';
+import { TaskPlanner } from '../agent/TaskPlanner';
+import { CacheManager } from '../cacheManager';
+import { getWebviewContent } from './webviewContent';
 
 export class ChatPanel {
     public static currentPanel: ChatPanel | undefined;
     private readonly panel: vscode.WebviewPanel;
     private readonly client: AnythingLLMClient;
     private readonly reader: WorkspaceReader;
+    private readonly tagManager: TagManager;
+    private readonly taskPlanner: TaskPlanner;
+    private readonly cacheManager: CacheManager;
     private disposables: vscode.Disposable[] = [];
     private projectContext: string = '';
     private isScanning: boolean = false;
 
-    // Constructor sudah menerima outputChannel
-    private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
+    private constructor(
+        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
+        outputChannel: vscode.OutputChannel,
+        tagManager: TagManager,
+        taskPlanner: TaskPlanner,
+        cacheManager: CacheManager
+    ) {
         this.panel = panel;
-        this.client = new AnythingLLMClient(outputChannel); // Oper ke client
+        this.client = new AnythingLLMClient(outputChannel, cacheManager);
         this.reader = new WorkspaceReader();
+        this.tagManager = tagManager;
+        this.taskPlanner = taskPlanner;
+        this.cacheManager = cacheManager;
 
-        this.panel.webview.html = this.getHtmlContent();
-        
+        const config = vscode.workspace.getConfiguration('anythingllm');
+        const workspaceSlug = config.get<string>('workspaceSlug', 'default');
+        const serverUrl = config.get<string>('serverUrl', 'http://localhost:3001');
+
+        this.panel.webview.html = getWebviewContent(workspaceSlug, serverUrl);
+
         this.panel.webview.onDidReceiveMessage(
             async (message) => {
                 switch (message.command) {
@@ -38,6 +58,21 @@ export class ChatPanel {
                         this.projectContext = '';
                         this.panel.webview.postMessage({ command: 'historyCleared' });
                         break;
+                    case 'agentMode':
+                        await this.handleAgentMode(message.text);
+                        break;
+                    case 'tagCurrentFile':
+                        await this.handleTagCurrentFile();
+                        break;
+                    case 'getTags':
+                        await this.handleGetTags();
+                        break;
+                    case 'clearCache':
+                        await this.handleClearCache();
+                        break;
+                    case 'forceSync':
+                        await this.handleForceSync();
+                        break;
                 }
             },
             null,
@@ -47,8 +82,13 @@ export class ChatPanel {
         this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     }
 
-    // createOrShow sudah menerima outputChannel
-    public static createOrShow(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
+    public static createOrShow(
+        extensionUri: vscode.Uri,
+        outputChannel: vscode.OutputChannel,
+        tagManager: TagManager,
+        taskPlanner: TaskPlanner,
+        cacheManager: CacheManager
+    ) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
             : undefined;
@@ -69,9 +109,17 @@ export class ChatPanel {
             }
         );
 
-        // Oper outputChannel ke constructor
-        ChatPanel.currentPanel = new ChatPanel(panel, extensionUri, outputChannel);
+        ChatPanel.currentPanel = new ChatPanel(
+            panel,
+            extensionUri,
+            outputChannel,
+            tagManager,
+            taskPlanner,
+            cacheManager
+        );
     }
+
+    // ============ HANDLER METHODS ============
 
     private async handleUserMessage(text: string) {
         this.panel.webview.postMessage({ command: 'setLoading', value: true });
@@ -82,7 +130,7 @@ export class ChatPanel {
                 this.panel.webview.postMessage({
                     command: 'addMessage',
                     role: 'ai',
-                    text: '⚠️ *Project belum di-scan. Klik tombol "Scan Project" agar AI bisa melihat seluruh kode Anda, atau lanjutkan chat tanpa context project.*'
+                    text: '⚠️ *Project belum di-scan. Klik tombol "Scan Project" atau "Sync Project" agar AI bisa melihat seluruh kode Anda.*'
                 });
             }
 
@@ -94,11 +142,14 @@ export class ChatPanel {
 
             if (response.success && response.data) {
                 let aiText = response.data.response;
+
+                aiText = aiText.replace(/<think>[\s\S]*?<\/think>/gi, '_*(Proses berpikir AI disembunyikan)*_').trim();
                 
                 if (response.data.sources && response.data.sources.length > 0) {
                     aiText += '\n\n---\n**📚 Sources:**\n';
                     response.data.sources.forEach((source: any, i: number) => {
-                        aiText += `${i + 1}. ${source.document || source.title || 'Unknown'}\n`;
+                        const docName = (source.document || source.title || 'Unknown');
+                        aiText += `${i + 1}. ${docName}\n`;
                     });
                 }
 
@@ -133,21 +184,16 @@ export class ChatPanel {
             this.panel.webview.postMessage({
                 command: 'addMessage',
                 role: 'ai',
-                text: '🔍 *Scanning project... Mohon tunggu, sedang membaca seluruh file...*'
+                text: '🔍 *Scanning project... Mohon tunggu.*'
             });
 
             this.projectContext = await this.reader.buildProjectContext();
             const stats = (await this.reader.scanWorkspace()).stats;
-            
+
             this.panel.webview.postMessage({
                 command: 'addMessage',
                 role: 'ai',
-                text: `✅ **Project berhasil di-scan!**\n\n` +
-                      `📊 **Statistik:**\n` +
-                      `- 📄 Total Files: ${stats.totalFiles}\n` +
-                      `- 💾 Total Size: ${this.formatSize(stats.totalSize)}\n` +
-                      `- 🗣️ Languages: ${Object.entries(stats.languages).map(([l, c]) => `${l} (${c})`).join(', ')}\n\n` +
-                      `Sekarang Anda bisa bertanya tentang project Anda.`
+                text: `✅ **Project berhasil di-scan!**\n\n📊 **Statistik:**\n-  Total Files: ${stats.totalFiles}\n- 💾 Total Size: ${this.formatSize(stats.totalSize)}\n- 🗣️ Languages: ${Object.entries(stats.languages).map(([l, c]) => `${l} (${c})`).join(', ')}\n\nSekarang Anda bisa bertanya tentang project Anda.`
             });
 
             this.panel.webview.postMessage({ command: 'projectScanned', stats });
@@ -165,339 +211,297 @@ export class ChatPanel {
 
     private async handleTestConnection() {
         this.panel.webview.postMessage({ command: 'setLoading', value: true });
-        
+
         const isConnected = await this.client.testConnection();
         const config = vscode.workspace.getConfiguration('anythingllm');
         const serverUrl = config.get<string>('serverUrl', 'http://localhost:3001');
-        
+
         this.panel.webview.postMessage({
             command: 'addMessage',
             role: 'ai',
-            text: isConnected 
+            text: isConnected
                 ? `✅ **Terhubung ke AnythingLLM!**\nWorkspace: \`${this.client.getSlug()}\`\nServer: ${serverUrl}`
-                : `❌ **Gagal terhubung ke AnythingLLM!**\n\nPeriksa:\n1. URL server sudah benar\n2. API Key sudah diisi\n3. Workspace slug sudah benar\n4. Server AnythingLLM bisa diakses\n\n*(Cek panel Output > AnythingLLM Assistant untuk detail error)*`
+                : `❌ **Gagal terhubung ke AnythingLLM!**\n\nPeriksa:\n1. URL server sudah benar\n2. API Key sudah diisi\n3. Workspace slug sudah benar\n4. Server AnythingLLM bisa diakses`
         });
-        
+
         this.panel.webview.postMessage({ command: 'setLoading', value: false });
     }
+
     private async handleSyncProject() {
         this.panel.webview.postMessage({ command: 'setLoading', value: true });
-        
+
         try {
-          const workspaceFolders = vscode.workspace.workspaceFolders;
-          if (!workspaceFolders) {
-            throw new Error('Tidak ada workspace yang terbuka.');
-          }
-    
-          const reader = new WorkspaceReader();
-          const { files, stats } = await reader.scanWorkspace();
-    
-          if (files.length === 0) {
-            throw new Error('Tidak ada file yang bisa di-scan (mungkin semua di-exclude atau binary).');
-          }
-    
-          this.panel.webview.postMessage({
-            command: 'addMessage',
-            role: 'ai',
-            text: `📤 Memulai sync ${files.length} file ke AnythingLLM... Mohon tunggu.`
-          });
-    
-          // Gunakan progress bar native VS Code
-          await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: 'Syncing Project to AnythingLLM',
-            cancellable: false
-          }, async (progress) => {
-            const uploadedFiles: string[] = [];
-            let failedCount = 0;
-    
-            for (let i = 0; i < files.length; i++) {
-              progress.report({ message: `Uploading ${files[i].relativePath} (${i + 1}/${files.length})`, increment: (1 / files.length) * 100 });
-              
-              const success = await this.client.uploadRawDocument(files[i].relativePath, files[i].content);
-              if (success) {
-                uploadedFiles.push(files[i].relativePath);
-              } else {
-                failedCount++;
-              }
-              
-              // Jeda 300ms untuk menghindari rate limit API
-              await new Promise(resolve => setTimeout(resolve, 300));
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                throw new Error('Tidak ada workspace yang terbuka.');
             }
-    
-            if (uploadedFiles.length > 0) {
-              progress.report({ message: 'Triggering AI Embedding Process...', increment: 100 });
-              await this.client.triggerWorkspaceSync(uploadedFiles);
+
+            const { files, stats } = await this.reader.scanWorkspace();
+
+            if (files.length === 0) {
+                throw new Error('Tidak ada file yang bisa di-scan.');
             }
-    
-            const successMsg = `✅ **Sync Selesai!**\n📤 Berhasil: ${uploadedFiles.length} file\n❌ Gagal/Skip: ${failedCount} file\n\nAI sekarang bisa membaca file-file tersebut saat Anda bertanya.`;
-            
+
             this.panel.webview.postMessage({
-              command: 'addMessage',
-              role: 'ai',
-              text: successMsg
+                command: 'addMessage',
+                role: 'ai',
+                text: ` Memulai sync ${files.length} file ke AnythingLLM...\n\n*Periksa panel Output untuk detail progress*`
             });
-          });
-    
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Syncing Project to AnythingLLM',
+                cancellable: false
+            }, async (progress) => {
+                const uploadedFiles: string[] = [];
+                const skippedFiles: string[] = [];
+                let failedCount = 0;
+                let failedFiles: string[] = [];
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const currentHash = this.cacheManager.getFileHash(file.content);
+
+                    if (!this.cacheManager.hasFileChanged(file.relativePath, currentHash)) {
+                        skippedFiles.push(file.relativePath);
+                        progress.report({
+                            message: `Skipping ${file.relativePath} (${i + 1}/${files.length})`,
+                            increment: (1 / files.length) * 100
+                        });
+                        continue;
+                    }
+
+                    progress.report({
+                        message: `Uploading ${file.relativePath} (${i + 1}/${files.length})`,
+                        increment: (1 / files.length) * 100
+                    });
+
+                    const success = await this.client.uploadRawDocument(file.relativePath, file.content);
+
+                    if (success) {
+                        uploadedFiles.push(file.relativePath);
+                        this.cacheManager.updateFileHash(file.relativePath, currentHash);
+                    } else {
+                        failedCount++;
+                        failedFiles.push(file.relativePath);
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+
+                if (uploadedFiles.length > 0) {
+                    progress.report({ message: 'Triggering AI Embedding...', increment: 100 });
+                    await this.client.triggerWorkspaceSync(uploadedFiles);
+                }
+
+                let resultMsg = `✅ **Sync Selesai!**\n\n`;
+                resultMsg += `📤 **Berhasil:** ${uploadedFiles.length} file\n`;
+                resultMsg += `⏭️ **Di-skip (tidak berubah):** ${skippedFiles.length} file\n`;
+                resultMsg += `❌ **Gagal:** ${failedCount} file\n`;
+
+                if (failedFiles.length > 0 && failedFiles.length <= 5) {
+                    resultMsg += `\n**File yang gagal:**\n${failedFiles.map(f => `- ${f}`).join('\n')}`;
+                } else if (failedFiles.length > 5) {
+                    resultMsg += `\n**5 file pertama yang gagal:**\n${failedFiles.slice(0, 5).map(f => `- ${f}`).join('\n')}\n...dan ${failedFiles.length - 5} lainnya`;
+                }
+
+                resultMsg += `\n\n*Periksa panel **Output > AnythingLLM Assistant** untuk detail error*`;
+
+                this.panel.webview.postMessage({
+                    command: 'addMessage',
+                    role: 'ai',
+                    text: resultMsg
+                });
+
+                this.panel.webview.postMessage({
+                    command: 'showToast',
+                    text: `✅ Sync complete — ${uploadedFiles.length} file berhasil`,
+                    type: 'success'
+                });
+            });
+
         } catch (error: any) {
-          this.panel.webview.postMessage({
-            command: 'addMessage',
-            role: 'ai',
-            text: `❌ **Sync Gagal:** ${error.message}`
-          });
+            this.panel.webview.postMessage({
+                command: 'addMessage',
+                role: 'ai',
+                text: `❌ **Sync Gagal:** ${error.message}\n\n*Periksa panel Output untuk detail*`
+            });
         } finally {
-          this.panel.webview.postMessage({ command: 'setLoading', value: false });
+            this.panel.webview.postMessage({ command: 'setLoading', value: false });
         }
     }
+
+    private async handleAgentMode(request: string) {
+        this.panel.webview.postMessage({ command: 'setLoading', value: true });
+
+        try {
+            const task = await this.taskPlanner.createTaskFromRequest(request);
+
+            if (task) {
+                const stepsText = task.steps.map((s: any, i: number) => `${i + 1}. **${s.action}**: ${s.description}`).join('\n');
+
+                this.panel.webview.postMessage({
+                    command: 'addMessage',
+                    role: 'ai',
+                    text: ` **Task Plan Dibuat!**\n\n${task.description}\n\n**Steps (${task.steps.length}):\n${stepsText}\n\n✅ Task siap dieksekusi.`
+                });
+            } else {
+                this.panel.webview.postMessage({
+                    command: 'addMessage',
+                    role: 'ai',
+                    text: '❌ Gagal membuat task plan. Coba deskripsikan dengan lebih detail.'
+                });
+            }
+        } catch (error: any) {
+            this.panel.webview.postMessage({
+                command: 'addMessage',
+                role: 'ai',
+                text: `❌ Error: ${error.message}`
+            });
+        } finally {
+            this.panel.webview.postMessage({ command: 'setLoading', value: false });
+        }
+    }
+
+    private async handleTagCurrentFile() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            this.panel.webview.postMessage({
+                command: 'addMessage',
+                role: 'ai',
+                text: '⚠️ Tidak ada file yang aktif di editor.'
+            });
+            return;
+        }
+
+        await this.tagManager.showTagPicker(editor.document.fileName);
+
+        const tags = this.tagManager.getTagsForFile(editor.document.fileName);
+        this.panel.webview.postMessage({
+            command: 'addMessage',
+            role: 'ai',
+            text: `🏷️ **Tags untuk \`${editor.document.fileName.split(/[\\/]/).pop()}\`:\n${tags.length > 0 ? tags.map((t: string) => `- ${t}`).join('\n') : '*Belum ada tag*'}`
+        });
+    }
+
+    private async handleGetTags() {
+        const tags = this.tagManager.getAllTags();
+        const tagsData = tags.map((t: any) => ({ name: t.name, color: t.color }));
+        this.panel.webview.postMessage({ command: 'tagsList', tags: tagsData });
+    }
+
+    // ============ HELPER METHODS ============
+
     private formatSize(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
-    private getHtmlContent(): string {
-        const config = vscode.workspace.getConfiguration('anythingllm');
-        const workspaceSlug = config.get<string>('workspaceSlug', 'default');
+    private async handleClearCache() {
+        const confirm = await vscode.window.showWarningMessage(
+            'Hapus semua cache? File akan di-upload ulang saat sync berikutnya.',
+            'Ya', 'Tidak'
+        );
 
-        return `<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AnythingLLM Chat</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+        if (confirm === 'Ya') {
+            await vscode.commands.executeCommand('anythingllm.clearCache');
+            this.panel.webview.postMessage({
+                command: 'showToast',
+                text: '🗑️ Cache cleared',
+                type: 'info'
+            });
         }
-        .header {
-            padding: 12px 16px;
-            background: var(--vscode-titleBar-activeBackground);
-            border-bottom: 1px solid var(--vscode-panel-border);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .header-icon { font-size: 20px; }
-        .header-info { flex: 1; }
-        .header-title { font-weight: bold; font-size: 14px; }
-        .header-subtitle { font-size: 11px; opacity: 0.7; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #f44336; }
-        .status-dot.connected { background: #4caf50; }
-        .toolbar {
-            padding: 8px 12px;
-            background: var(--vscode-sideBar-background);
-            border-bottom: 1px solid var(--vscode-panel-border);
-            display: flex; gap: 6px; flex-wrap: wrap;
-        }
-        .toolbar button {
-            padding: 4px 10px; font-size: 11px;
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            border: none; border-radius: 3px; cursor: pointer;
-            display: flex; align-items: center; gap: 4px;
-        }
-        .toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
-        .toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #chat-container {
-            flex: 1; overflow-y: auto; padding: 16px;
-            display: flex; flex-direction: column; gap: 12px;
-        }
-        .message {
-            max-width: 90%; padding: 10px 14px; border-radius: 10px;
-            line-height: 1.5; font-size: 13px; word-wrap: break-word; white-space: pre-wrap;
-        }
-        .message.user {
-            align-self: flex-end;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border-bottom-right-radius: 2px;
-        }
-        .message.ai {
-            align-self: flex-start;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
-            border-bottom-left-radius: 2px;
-        }
-        .message.system {
-            align-self: center; background: transparent;
-            color: var(--vscode-descriptionForeground); font-size: 11px; font-style: italic;
-        }
-        .loading { display: flex; gap: 4px; padding: 12px; align-self: flex-start; }
-        .loading span {
-            width: 6px; height: 6px; background: var(--vscode-foreground);
-            border-radius: 50%; animation: bounce 1.4s infinite ease-in-out;
-        }
-        .loading span:nth-child(1) { animation-delay: -0.32s; }
-        .loading span:nth-child(2) { animation-delay: -0.16s; }
-        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-        .input-area {
-            padding: 12px; background: var(--vscode-sideBar-background);
-            border-top: 1px solid var(--vscode-panel-border);
-            display: flex; gap: 8px;
-        }
-        #userInput {
-            flex: 1; padding: 10px 12px;
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 6px; font-size: 13px; font-family: inherit;
-            resize: none; min-height: 38px; max-height: 120px;
-        }
-        #userInput:focus { outline: 1px solid var(--vscode-focusBorder); }
-        #syncBtn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-        #syncBtn:hover { background: var(--vscode-button-hoverBackground); }
-        #sendBtn {
-            padding: 10px 18px; background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground); border: none;
-            border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
-        }
-        
-        #sendBtn:hover { background: var(--vscode-button-hoverBackground); }
-        #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 4px; }
-        .project-stats {
-            padding: 8px 12px; background: var(--vscode-textBlockQuote-background);
-            border-radius: 6px; font-size: 11px; margin: 0 12px;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <span class="header-icon">🤖</span>
-        <div class="header-info">
-            <div class="header-title">AnythingLLM Assistant</div>
-            <div class="header-subtitle">Workspace: ${workspaceSlug}</div>
-        </div>
-        <div class="status-dot" id="statusDot" title="Disconnected"></div>
-    </div>
-
-    <div class="toolbar">
-        <button id="syncBtn" title="Upload project ke AnythingLLM"><span>📤</span> Sync Project</button>
-        <button id="scanBtn" title="Scan project lokal"><span>🔍</span> Scan Project</button>
-        <button id="testBtn" title="Test koneksi ke AnythingLLM"><span>🔌</span> Test Connection</button>
-        <button id="clearBtn" title="Hapus history chat"><span>🗑️</span> Clear</button>
-    </div>
-
-    <div id="projectStats" class="project-stats" style="display:none;"></div>
-    <div id="chat-container"></div>
-
-    <div class="input-area">
-        <textarea id="userInput" placeholder="Tanya tentang project Anda..." rows="1"></textarea>
-        <button id="sendBtn">Send</button>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const chatContainer = document.getElementById('chat-container');
-        const userInput = document.getElementById('userInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const scanBtn = document.getElementById('scanBtn');
-        const testBtn = document.getElementById('testBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const statusDot = document.getElementById('statusDot');
-        const projectStats = document.getElementById('projectStats');
-        const syncBtn = document.getElementById('syncBtn');
-        
-
-        addMessage('ai', '👋 Halo! Saya AI Assistant Anda yang terhubung ke AnythingLLM.\\n\\n**Langkah pertama:** Klik tombol **🔍 Scan Project** agar saya bisa melihat seluruh kode di project Anda.\\n\\nAtau klik **🔌 Test Connection** untuk memastikan server bisa dihubungi.');
-
-        sendBtn.addEventListener('click', sendMessage);
-        scanBtn.addEventListener('click', () => vscode.postMessage({ command: 'scanWorkspace' }));
-        testBtn.addEventListener('click', () => vscode.postMessage({ command: 'testConnection' }));
-        syncBtn.addEventListener('click', () => vscode.postMessage({ command: 'syncProject' }));
-        clearBtn.addEventListener('click', () => {
-            chatContainer.innerHTML = '';
-            vscode.postMessage({ command: 'clearHistory' });
-            addMessage('system', 'Chat history cleared');
-        });
-
-        userInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-        });
-
-        userInput.addEventListener('input', () => {
-            userInput.style.height = 'auto';
-            userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
-        });
-
-        function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text) return;
-            addMessage('user', text);
-            vscode.postMessage({ command: 'sendMessage', text: text });
-            userInput.value = '';
-            userInput.style.height = 'auto';
-        }
-
-        function addMessage(role, text) {
-            const div = document.createElement('div');
-            div.className = 'message ' + role;
-            let formatted = text
-                .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
-                .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
-                .replace(/\`([^\`]+)\`/g, '<code style="background:rgba(127,127,127,0.2);padding:2px 4px;border-radius:3px;">$1</code>')
-                .replace(/\\n/g, '<br>');
-            div.innerHTML = formatted;
-            chatContainer.appendChild(div);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-
-        function showLoading(show) {
-            let loading = document.getElementById('loadingIndicator');
-            if (show) {
-                if (!loading) {
-                    loading = document.createElement('div');
-                    loading.id = 'loadingIndicator';
-                    loading.className = 'loading';
-                    loading.innerHTML = '<span></span><span></span><span></span>';
-                    chatContainer.appendChild(loading);
-                }
-                chatContainer.scrollTop = chatContainer.scrollHeight;
-            } else if (loading) { loading.remove(); }
-            sendBtn.disabled = show;
-        }
-
-        window.addEventListener('message', event => {
-            const msg = event.data;
-            switch (msg.command) {
-                case 'addMessage': addMessage(msg.role, msg.text); break;
-                case 'setLoading': showLoading(msg.value); break;
-                case 'setScanning':
-                    scanBtn.disabled = msg.value;
-                    scanBtn.innerHTML = msg.value ? '<span>⏳</span> Scanning...' : '<span>🔍</span> Scan Project';
-                    break;
-                case 'projectScanned':
-                    statusDot.classList.add('connected');
-                    statusDot.title = 'Project scanned';
-                    projectStats.style.display = 'block';
-                    projectStats.innerHTML = \`📊 \${msg.stats.totalFiles} files | \${Object.keys(msg.stats.languages).length} languages\`;
-                    break;
-                case 'historyCleared':
-                    projectStats.style.display = 'none';
-                    statusDot.classList.remove('connected');
-                    break;
-            }
-        });
-    </script>
-</body>
-</html>`;
     }
 
-    public dispose() {
+    private async handleForceSync() {
+        this.panel.webview.postMessage({ command: 'setLoading', value: true });
+
+        try {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                throw new Error('Tidak ada workspace yang terbuka.');
+            }
+
+            const { files, stats } = await this.reader.scanWorkspace();
+
+            if (files.length === 0) {
+                throw new Error('Tidak ada file yang bisa di-scan.');
+            }
+
+            this.panel.webview.postMessage({
+                command: 'addMessage',
+                role: 'ai',
+                text: `🔄 **Force Sync Dimulai!**\n\nMeng-upload ulang ${files.length} file (bypass cache)...`
+            });
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Force Syncing Project',
+                cancellable: false
+            }, async (progress) => {
+                const uploadedFiles: string[] = [];
+                let failedCount = 0;
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const currentHash = this.cacheManager.getFileHash(file.content);
+
+                    progress.report({
+                        message: `Uploading ${file.relativePath} (${i + 1}/${files.length})`,
+                        increment: (1 / files.length) * 100
+                    });
+
+                    const success = await this.client.uploadRawDocument(file.relativePath, file.content);
+
+                    if (success) {
+                        uploadedFiles.push(file.relativePath);
+                        this.cacheManager.updateFileHash(file.relativePath, currentHash);
+                    } else {
+                        failedCount++;
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+
+                if (uploadedFiles.length > 0) {
+                    progress.report({ message: 'Triggering AI Embedding...', increment: 100 });
+                    await this.client.triggerWorkspaceSync(uploadedFiles);
+                }
+
+                this.panel.webview.postMessage({
+                    command: 'addMessage',
+                    role: 'ai',
+                    text: `✅ **Force Sync Selesai!**\n\n📤 **Berhasil:** ${uploadedFiles.length} file\n❌ **Gagal:** ${failedCount} file\n\nCache telah diupdate. Sync berikutnya akan lebih cepat.`
+                });
+
+                this.panel.webview.postMessage({
+                    command: 'showToast',
+                    text: `🔄 Force sync complete — ${uploadedFiles.length} file`,
+                    type: 'success'
+                });
+            });
+
+        } catch (error: any) {
+            this.panel.webview.postMessage({
+                command: 'addMessage',
+                role: 'ai',
+                text: `❌ **Force Sync Gagal:** ${error.message}`
+            });
+        } finally {
+            this.panel.webview.postMessage({ command: 'setLoading', value: false });
+        }
+    }
+
+    // ✅ Method dispose yang hilang - ini yang menyebabkan error
+    public dispose(): void {
         ChatPanel.currentPanel = undefined;
         this.panel.dispose();
         while (this.disposables.length) {
             const disposable = this.disposables.pop();
-            if (disposable) { disposable.dispose(); }
+            if (disposable) {
+                disposable.dispose();
+            }
         }
     }
 }

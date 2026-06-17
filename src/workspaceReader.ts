@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { minimatch } from 'minimatch';
 
 export interface ProjectFile {
     path: string;
@@ -32,9 +33,6 @@ export class WorkspaceReader {
         this.maxFileSize = config.get<number>('maxFileSize', 100000);
     }
 
-    /**
-     * Scan seluruh workspace dan kembalikan struktur folder
-     */
     async scanWorkspace(): Promise<{
         structure: string;
         files: ProjectFile[];
@@ -73,7 +71,7 @@ export class WorkspaceReader {
         languages: Record<string, number>,
         depth: number
     ): Promise<void> {
-        if (depth > 10) return; // Batasi kedalaman folder
+        if (depth > 10) return;
 
         const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
         const indent = '  '.repeat(depth);
@@ -93,13 +91,11 @@ export class WorkspaceReader {
             } else if (entry.isFile()) {
                 const stats = await fs.promises.stat(fullPath);
                 
-                // Skip file yang terlalu besar
                 if (stats.size > this.maxFileSize) {
                     structure.push(`${indent}📄 ${entry.name} (${this.formatSize(stats.size)}) [SKIPPED - too large]`);
                     continue;
                 }
 
-                // Skip binary files
                 if (this.isBinaryFile(entry.name)) {
                     structure.push(`${indent}📄 ${entry.name} (${this.formatSize(stats.size)}) [BINARY]`);
                     continue;
@@ -128,20 +124,13 @@ export class WorkspaceReader {
     }
 
     private shouldExclude(relativePath: string): boolean {
+        // Normalisasi path ke format forward slash untuk konsistensi
         const normalizedPath = relativePath.replace(/\\/g, '/');
+        
+        // Cek setiap pattern
         return this.excludePatterns.some(pattern => {
-            const regex = this.globToRegex(pattern);
-            return regex.test(normalizedPath);
+            return minimatch(normalizedPath, pattern, { matchBase: true });
         });
-    }
-
-    private globToRegex(glob: string): RegExp {
-        const regexStr = glob
-            .replace(/\*\*/g, '.*')
-            .replace(/\*/g, '[^/]*')
-            .replace(/\?/g, '.')
-            .replace(/\//g, '\\/');
-        return new RegExp(`^${regexStr}$|${regexStr}`);
     }
 
     private isBinaryFile(filename: string): boolean {
@@ -199,9 +188,6 @@ export class WorkspaceReader {
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
-    /**
-     * Buat context string dari seluruh project untuk dikirim ke AI
-     */
     async buildProjectContext(): Promise<string> {
         const { structure, files, stats } = await this.scanWorkspace();
         
@@ -212,7 +198,6 @@ export class WorkspaceReader {
         
         context += `## 📁 Project Structure\n\`\`\`\n${structure}\n\`\`\`\n\n`;
         
-        // Tambahkan isi file-file penting (package.json, README, dll)
         const importantFiles = files.filter(f => 
             f.relativePath === 'package.json' ||
             f.relativePath === 'README.md' ||

@@ -7,7 +7,7 @@
     "publisher": "riphputra",
     "repository": {
         "type": "git",
-        "url": "https://github.com/riphputra/AnythingLLM"
+        "url": "https://github.com/riphputra/vscode-anythingllm-chat"
     },
     "engines": {
         "vscode": "^1.85.0"
@@ -32,6 +32,21 @@
             {
                 "command": "anythingllm.clearHistory",
                 "title": "Clear Chat History"
+            },
+            {
+                "command": "anythingllm.tagFile",
+                "title": "Tag File for AI",
+                "icon": "$(tag)"
+            },
+            {
+                "command": "anythingllm.agentMode",
+                "title": "AI Agent Mode",
+                "icon": "$(robot)"
+            },
+            {
+                "command": "anythingllm.showTaggedFiles",
+                "title": "Show Tagged Files",
+                "icon": "$(list-filter)"
             }
         ],
         "viewsContainers": {
@@ -91,6 +106,21 @@
                     "type": "number",
                     "default": 100000,
                     "description": "Ukuran maksimal file (bytes) yang akan dibaca"
+                },
+                "anythingllm.autoSaveAfterEdit": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Auto-save file setelah AI edit"
+                },
+                "anythingllm.confirmBeforeEdit": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Minta konfirmasi sebelum AI edit file"
+                },
+                "anythingllm.enableAgentMode": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable AI Agent mode (multi-step tasks)"
                 }
             }
         }
@@ -102,6 +132,7 @@
         "package": "vsce package"
     },
     "devDependencies": {
+        "@types/minimatch": "^5.1.2",
         "@types/node": "^20.19.43",
         "@types/vscode": "1.85.0",
         "@vscode/vsce": "^2.32.0",
@@ -109,6 +140,22 @@
     },
     "dependencies": {
         "axios": "^1.18.0",
-        "glob": "^10.5.0"
+        "glob": "^10.5.0",
+        "minimatch": "^10.2.5"
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId",
+          "command": "anythingllm.tagFile",
+          "group": "navigation@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "anythingllm.tagFile",
+          "group": "navigation@2"
+        }
+      ]
     }
 }
