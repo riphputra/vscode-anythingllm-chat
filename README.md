@@ -91,7 +91,7 @@ Invoke in the VS Code Chat view (`Ctrl/Cmd+L`):
 - Upload the active file to AnythingLLM via the editor context menu (Right-click → AnythingLLM)
 - Auto-embed documents into the active workspace after upload
 
-### 🌟 v0.3.0 Feature Set (18 additions)
+### 🌟 v1.1.3 Feature Set (18 additions)
 **Agentic (P1)**
 1. LLM-based JSON planner
 2. ReAct (Reason → Act → Observe) loop executor
