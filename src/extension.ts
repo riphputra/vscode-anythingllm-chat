@@ -1,174 +1,263 @@
 import * as vscode from 'vscode';
-import { ChatPanel } from './webview/chatPanel';
-import { AnythingLLMClient } from './anythingllm';
-import { FileEditor } from './agent/FileEditor';
-import { TagManager } from './agent/TagManager';
-import { TaskPlanner } from './agent/TaskPlanner';
-import { CacheManager } from './cacheManager';
-import * as fs from 'fs';
-import * as path from 'path';
+import { AnythingLLMClient } from './anythingllmClient';
+import { ChatParticipantHandler } from './chatParticipant';
+import { ChatPanelProvider } from './chatPanel';
+import { Logger } from './logger';
+import { registerCommands } from './commands';
+import { SecretStore } from './secretStore';
+import { StateManager } from './state';
+import { StatusBar } from './statusBar';
+import { resetPermissions } from './agentPermissions';
+import {
+  WorkspaceTreeDataProvider,
+  ThreadTreeDataProvider,
+} from './treeViews';
+import { Config } from './config';
 
-let outputChannel: vscode.OutputChannel;
-let tagManager: TagManager;
-let fileEditor: FileEditor;
-let taskPlanner: TaskPlanner;
-let cacheManager: CacheManager;
+export function activate(context: vscode.ExtensionContext): void {
+  Logger.init(context);
+  Logger.info(`Activating AnythingLLM extension v${context.extension.packageJSON?.version}`);
 
-export function activate(context: vscode.ExtensionContext) {
-    outputChannel = vscode.window.createOutputChannel('AnythingLLM Assistant');
-    outputChannel.appendLine('🤖 AnythingLLM Assistant activated!');
+  // ─── Init core services ────────────────────────────────────────────────
+  const secrets = new SecretStore(context);
+  const client = new AnythingLLMClient(async () => secrets.requireApiKey());
 
-    cacheManager = new CacheManager();
+  // ─── Tree views ────────────────────────────────────────────────────────
+  const workspaceTreeProvider = new WorkspaceTreeDataProvider(client);
+  const threadTreeProvider = new ThreadTreeDataProvider(client);
 
-    const client = new AnythingLLMClient(outputChannel, cacheManager);
-    fileEditor = new FileEditor(outputChannel);
-    tagManager = new TagManager(outputChannel);
-    taskPlanner = new TaskPlanner(client, fileEditor, outputChannel);
+  const workspaceView = vscode.window.createTreeView('anythingllm.workspaces', {
+    treeDataProvider: workspaceTreeProvider,
+    showCollapseAll: false,
+  });
+  context.subscriptions.push(workspaceView);
 
-    // Command: Open Chat
+  const threadView = vscode.window.createTreeView('anythingllm.threads', {
+    treeDataProvider: threadTreeProvider,
+    showCollapseAll: false,
+  });
+  context.subscriptions.push(threadView);
+
+  // ─── Chat participant ──────────────────────────────────────────────────
+  const handler = new ChatParticipantHandler(client);
+  const participant = vscode.chat.createChatParticipant(
+    'anythingllm.chat',
+    handler.getHandler()
+  );
+  participant.iconPath = new vscode.ThemeIcon('hubot');
+  context.subscriptions.push(participant);
+
+  // ─── Follow-up provider ────────────────────────────────────────────────
+  participant.followupProvider = {
+    provideFollowups(result, _context, _token) {
+      const meta = (result as { metadata?: { command?: string; workspaceSlug?: string } })
+        ?.metadata;
+      if (!meta) return [];
+
+      const followups: vscode.ChatFollowup[] = [];
+      const ws = meta.workspaceSlug ? ` in workspace ${meta.workspaceSlug}` : '';
+
+      switch (meta.command) {
+        case 'ask':
+          followups.push(
+            { prompt: 'Explain the answer above in more detail', label: vscode.l10n.t('More detail') },
+            { prompt: 'Give me a code example', label: vscode.l10n.t('Code example') },
+            { prompt: `Search related documents${ws}`, label: vscode.l10n.t('Search documents') }
+          );
+          break;
+        case 'summarize':
+          followups.push(
+            { prompt: 'Summarize as bullet points', label: vscode.l10n.t('Bullet points') },
+            { prompt: 'Apply to another file', label: vscode.l10n.t('Summarize another file') }
+          );
+          break;
+        case 'explain':
+          followups.push(
+            { prompt: 'How do I use this code?', label: vscode.l10n.t('How to use') },
+            { prompt: 'What are the potential bugs?', label: vscode.l10n.t('Potential bugs') }
+          );
+          break;
+        case 'search':
+          followups.push(
+            { prompt: 'Ask about the first document', label: vscode.l10n.t('Ask about doc #1') }
+          );
+          break;
+        case 'agent':
+          followups.push(
+            { prompt: 'Continue the investigation', label: vscode.l10n.t('Continue') },
+            { prompt: 'Summarize the agent findings above', label: vscode.l10n.t('Summarize findings') }
+          );
+          break;
+      }
+      return followups;
+    },
+  };
+
+  // ─── Commands ──────────────────────────────────────────────────────────
+  registerCommands(
+    context,
+    client,
+    secrets,
+    workspaceTreeProvider,
+    threadTreeProvider
+  );
+
+  // ─── Chat Panel (Webview) ──────────────────────────────────────────────
+  const chatPanel = ChatPanelProvider.getInstance(context, client, secrets);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.openChatPanel', () => {
+      chatPanel.show();
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.clearChat', () => {
+      chatPanel.show();
+    })
+  );
+
+  // ─── Tier 3 Agent commands ────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.runAgent', async () => {
+      chatPanel.show();
+      const goal = await vscode.window.showInputBox({
+        prompt: 'Goal for the Agent',
+        placeHolder: 'e.g. Find documents about the leave policy and summarize the key points',
+        ignoreFocusOut: true,
+      });
+      if (!goal) return;
+      vscode.window.showInformationMessage(
+        `🤖 Agent: type the following goal in the Chat Panel and press Enter:\n"${goal}"`
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.toggleAgentMode', () => {
+      const current = vscode.workspace
+        .getConfiguration('anythingllm')
+        .get<boolean>('agentMode', false);
+      vscode.workspace
+        .getConfiguration('anythingllm')
+        .update('agentMode', !current, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(
+        `🤖 Agent mode: ${!current ? 'ON' : 'OFF'}`
+      );
+      chatPanel.show();
+    })
+  );
+
+  // ─── v0.3.0 new commands ───────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.exportChat', () => {
+      chatPanel.show();
+      // User uses the export button in chat panel
+      vscode.window.showInformationMessage('Click the 💾 button in the Chat Panel header to export.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.showHistory', () => {
+      chatPanel.show();
+      vscode.window.showInformationMessage('Click the 📜 button in the Chat Panel header to view history.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.workspaceDocuments', () => {
+      chatPanel.show();
+      vscode.window.showInformationMessage('Click the 🗂️ button in the Chat Panel header to manage documents.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.showAgentRuns', async () => {
+      // Use AgentRunHistory's picker directly via chatPanel (we don't have direct ref, so use command)
+      // Actually we need to expose this — for now, just open chat panel and hint
+      chatPanel.show();
+      vscode.window.showInformationMessage('Open Settings → "Agent & MCP" tab to view agent run history.');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('anythingllm.resetPermissions', () => {
+      resetPermissions();
+      vscode.window.showInformationMessage('🤖 Agent tool permissions have been reset.');
+    })
+  );
+
+  // ─── Status bar ────────────────────────────────────────────────────────
+  const showStatusBar = Config.section.get<boolean>('showStatusBar', true);
+  if (showStatusBar) {
+    const statusBar = new StatusBar();
+    context.subscriptions.push(statusBar);
+
+    // Wire up token tracker updates
+    const tokenTracker = chatPanel.getTokenTracker();
+    const updateStatusBar = () => {
+      const stats = tokenTracker.getStats();
+      statusBar.setTodayTokens(stats.todayTokens);
+    };
+    setInterval(updateStatusBar, 30_000); // refresh every 30s
+
+    // Wire up agent mode + streaming state to status bar
     context.subscriptions.push(
-        vscode.commands.registerCommand('anythingllm.openChat', () => {
-            ChatPanel.createOrShow(context.extensionUri, outputChannel, tagManager, taskPlanner, cacheManager);
-        })
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('anythingllm.agentMode')) {
+          statusBar.setAgentMode(Config.section.get<boolean>('agentMode', false));
+        }
+      })
     );
+    statusBar.setAgentMode(Config.section.get<boolean>('agentMode', false));
+  }
 
-    // Command: Tag File
-    context.subscriptions.push(
-        vscode.commands.registerCommand('anythingllm.tagFile', async (uri?: vscode.Uri) => {
-            const filePath = uri?.fsPath || vscode.window.activeTextEditor?.document.fileName;
-            if (filePath) {
-                await tagManager.showTagPicker(filePath);
-            }
-        })
-    );
+  // ─── Auto-start MCP servers ───────────────────────────────────────────
+  const autoStartMcp = Config.section.get<boolean>('autoStartMcp', true);
+  if (autoStartMcp) {
+    const mcpClient = chatPanel.getMcpClient();
+    mcpClient.startAll().catch((err) => {
+      Logger.warn('Failed to auto-start MCP servers', err);
+    });
+    context.subscriptions.push({ dispose: () => mcpClient.stopAll() });
+  }
 
-    // Command: Show Tagged Files
-    context.subscriptions.push(
-        vscode.commands.registerCommand('anythingllm.showTaggedFiles', async () => {
-            const tags = tagManager.getAllTags();
-            
-            const quickPickItems = tags.map(tag => ({
-                label: tag.name,
-                description: tag.description || '',
-                color: tag.color,
-                tag
-            }));
+  // ─── Welcome message on first activation ───────────────────────────────
+  context.subscriptions.push(
+    StateManager.instance.onDidChangeWorkspace((slug) => {
+      Logger.info(`Active workspace changed: ${slug}`);
+      threadTreeProvider.refresh();
+    })
+  );
 
-            const selected = await vscode.window.showQuickPick(quickPickItems, {
-                placeHolder: 'Pilih tag untuk lihat file'
-            });
-
-            if (selected) {
-                const files = tagManager.getFilesByTag(selected.tag.name);
-                const fileUris = files.map(f => vscode.Uri.file(f.filePath));
-                
-                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(files[0]?.filePath || ''), { forceNewWindow: false });
-            }
-        })
-    );
-
-    // Command: Agent Mode
-    context.subscriptions.push(
-        vscode.commands.registerCommand('anythingllm.agentMode', async () => {
-            const request = await vscode.window.showInputBox({
-                prompt: 'Apa yang ingin AI lakukan?',
-                placeHolder: 'contoh: "Buat fungsi login dengan validasi email dan password"',
-                ignoreFocusOut: true
-            });
-
-            if (request) {
-                vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: 'AI Agent sedang membuat rencana...',
-                    cancellable: false
-                }, async (progress) => {
-                    progress.report({ message: 'Menganalisis request...' });
-                    
-                    const task = await taskPlanner.createTaskFromRequest(request);
-                    
-                    if (task) {
-                        progress.report({ message: `Task plan dibuat: ${task.steps.length} steps` });
-                        
-                        const confirmed = await vscode.window.showInformationMessage(
-                            `AI akan menjalankan ${task.steps.length} step:\n\n${task.steps.map((s, i) => `${i+1}. ${s.description}`).join('\n')}`,
-                            'Jalankan', 'Batal'
-                        );
-
-                        if (confirmed === 'Jalankan') {
-                            progress.report({ message: 'Menjalankan task...' });
-                            await taskPlanner.executeTask(task.id);
-                        }
-                    }
-                });
-            }
-        })
-    );
-
-    // Welcome message
-    const config = vscode.workspace.getConfiguration('anythingllm');
-    if (!config.get<string>('apiKey')) {
-        vscode.window.showWarningMessage(
-            '⚠️ API Key belum diset!',
-            'Open Settings'
-        ).then(selection => {
-            if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'anythingllm');
-            }
+  // ─── Auto-load workspace list if API key already present ───────────────
+  secrets.hasApiKey().then((has) => {
+    if (has) {
+      workspaceTreeProvider.refresh();
+      Logger.info('API key detected, auto-loading workspaces');
+    } else {
+      Logger.info('No API key configured yet. User must set via command.');
+      // Show walkthrough on first launch
+      vscode.window
+        .showInformationMessage(
+          'AnythingLLM: Welcome! Set your API key to start using the extension.',
+          'Set API Key',
+          'Take Tour'
+        )
+        .then((a) => {
+          if (a === 'Set API Key') {
+            vscode.commands.executeCommand('anythingllm.setApiKey');
+          } else if (a === 'Take Tour') {
+            vscode.commands.executeCommand(
+              'workbench.action.openWalkthrough',
+              'riphputra.anythingllm-vscode#anythingllm.welcome'
+            );
+          }
         });
     }
-    // 1. Buat Status Bar Item untuk Tagging
-    const tagStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    tagStatusBar.command = 'anythingllm.tagFile';
-    context.subscriptions.push(tagStatusBar);
+  });
 
-    // 2. Update Status Bar saat pindah file
-    const updateTagStatus = () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor) {
-            const tags = tagManager.getTagsForFile(editor.document.fileName);
-            if (tags.length > 0) {
-                tagStatusBar.text = `️ ${tags.join(', ')}`;
-                tagStatusBar.tooltip = 'Klik untuk mengubah tag file ini';
-                tagStatusBar.show();
-            } else {
-                tagStatusBar.text = '🏷️ Tag File';
-                tagStatusBar.tooltip = 'Klik untuk memberi tag pada file ini';
-                tagStatusBar.show();
-            }
-        } else {
-            tagStatusBar.hide();
-        }
-    };
-
-    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateTagStatus));
-    updateTagStatus(); // Panggil saat pertama kali load
-
-    // Command: Clear Cache
-    context.subscriptions.push(
-        vscode.commands.registerCommand('anythingllm.clearCache', async () => {
-            const confirm = await vscode.window.showWarningMessage(
-                'Hapus semua cache (file hash & chat history)? Ini akan memaksa re-upload semua file saat sync berikutnya.',
-                'Ya, Hapus Cache', 'Batal'
-            );
-            
-            if (confirm === 'Ya, Hapus Cache') {
-                // Hapus file cache
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (workspaceFolders) {
-                    const cachePath = path.join(workspaceFolders[0].uri.fsPath, '.vscode', 'ai-cache.json');
-                    try {
-                        if (fs.existsSync(cachePath)) {
-                            await fs.promises.unlink(cachePath);
-                            vscode.window.showInformationMessage('✅ Cache berhasil dihapus! Silakan sync ulang project Anda.');
-                            outputChannel.appendLine('[CACHE] ✅ Cache cleared');
-                        }
-                    } catch (error: any) {
-                        vscode.window.showErrorMessage(`Gagal hapus cache: ${error.message}`);
-                    }
-                }
-            }
-        })
-    );
+  Logger.info('AnythingLLM extension activated (v0.3.0)');
 }
 
-export function deactivate() {}
+export function deactivate(): void {
+  Logger.info('AnythingLLM extension deactivated');
+}

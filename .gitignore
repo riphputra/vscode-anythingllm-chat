@@ -1,57 +1,7 @@
-# ==========================================
-# DEPENDENCIES & BUILD OUTPUTS
-# ==========================================
-# Folder dependensi Node.js (JANGAN DI-UPLOAD)
 node_modules/
-
-# Folder hasil compile TypeScript ke JavaScript
-out/
 dist/
-
-# File hasil build ekstensi VS Code (*.vsix)
+out/
 *.vsix
-
-# ==========================================
-# SECRETS & ENVIRONMENT VARIABLES (SANGAT PENTING)
-# ==========================================
-# File yang mungkin berisi API Key atau password
-.env
-.env.local
-.env.*.local
-*.key
-*.pem
-config.json
-
-# ==========================================
-# EDITOR & OS SPECIFIC FILES
-# ==========================================
-# Pengaturan lokal VS Code (opsional, tapi aman untuk di-ignore)
-.vscode/
-
-# File sampah sistem operasi
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# File temporary editor lain
-*.swp
-*.swo
-*~
-.idea/
-
-# ==========================================
-# LOGS & TESTING
-# ==========================================
-# File log debugging
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Folder testing VS Code
 .vscode-test/
-coverage/
+.DS_Store
+*.log

@@ -1,162 +1,496 @@
 {
-    "name": "anythingllm-assistant",
-    "displayName": "AnythingLLM Assistant",
-    "description": "AI Chat & Agent Assistant powered by your AnythingLLM instance",
-    "version": "1.0.2",
-    "license": "MIT",
-    "publisher": "riphputra",
-    "icon": "icon.png",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/riphputra/vscode-anythingllm-chat"
-    },
-    "engines": {
-        "vscode": "^1.85.0"
-    },
-    "categories": [
-        "Other",
-        "Machine Learning"
-    ],
-    "activationEvents": [],
-    "main": "./out/extension.js",
-    "contributes": {
+  "name": "anythingllm-assistant",
+  "displayName": "AnythingLLM Assistant",
+  "description": "AI Chat & AI Agent extension for VS Code powered by AnythingLLM. Chat with your documents, upload files, and leverage RAG directly from the editor.",
+  "version": "1.1.3",
+  "license": "MIT",
+  "publisher": "riphputra",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "rag",
+    "anythingllm",
+    "llm",
+    "agent"
+  ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/riphputra/vscode-anythingllm-chat"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "anythingllm.chat",
+        "name": "anythingllm",
+        "fullName": "AnythingLLM",
+        "description": "Chat with your AnythingLLM documents & workspaces",
+        "isSticky": true,
         "commands": [
-            {
-                "command": "anythingllm.openChat",
-                "title": "Open AnythingLLM Chat",
-                "icon": "$(comment-discussion)"
-            },
-            {
-                "command": "anythingllm.scanWorkspace",
-                "title": "Scan Workspace for AnythingLLM"
-            },
-            {
-                "command": "anythingllm.clearHistory",
-                "title": "Clear Chat History"
-            },
-            {
-                "command": "anythingllm.tagFile",
-                "title": "Tag File for AI",
-                "icon": "$(tag)"
-            },
-            {
-                "command": "anythingllm.agentMode",
-                "title": "AI Agent Mode",
-                "icon": "$(robot)"
-            },
-            {
-                "command": "anythingllm.showTaggedFiles",
-                "title": "Show Tagged Files",
-                "icon": "$(list-filter)"
-            }
+          {
+            "name": "ask",
+            "description": "Chat with the active workspace (default)"
+          },
+          {
+            "name": "summarize",
+            "description": "Summarize the active file or selection"
+          },
+          {
+            "name": "explain",
+            "description": "Explain the active selection or file"
+          },
+          {
+            "name": "search",
+            "description": "Search relevant documents in the workspace without calling the LLM"
+          },
+          {
+            "name": "upload",
+            "description": "Upload the active file to an AnythingLLM workspace"
+          },
+          {
+            "name": "agent",
+            "description": "Tier 3 — Run an AI Agent: autonomous plan + tool calls for complex goals"
+          }
         ],
-        "viewsContainers": {
-            "activitybar": [
-                {
-                    "id": "anythingllm-sidebar",
-                    "title": "AnythingLLM",
-                    "icon": "$(robot)"
-                }
+        "disambiguation": [
+          {
+            "category": "anythingllm_docs",
+            "description": "Questions about information contained in the user's AnythingLLM documents / knowledge base.",
+            "examples": [
+              "Find information about the leave policy in my documents",
+              "What's a summary of the documents I just uploaded?",
+              "Ask my knowledge base about X",
+              "Based on my documents, explain Y"
             ]
-        },
-        "views": {
-            "anythingllm-sidebar": [
-                {
-                    "type": "webview",
-                    "id": "anythingllm.chatView",
-                    "name": "AI Chat"
-                }
-            ]
-        },
-        "configuration": {
-            "title": "AnythingLLM Assistant",
-            "properties": {
-                "anythingllm.serverUrl": {
-                    "type": "string",
-                    "default": "localhost:3001",
-                    "description": "URL server AnythingLLM Anda"
-                },
-                "anythingllm.apiKey": {
-                    "type": "string",
-                    "default": "",
-                    "description": "API Key AnythingLLM (dapatkan dari Settings > API Keys)"
-                },
-                "anythingllm.workspaceSlug": {
-                    "type": "string",
-                    "default": "my-project",
-                    "description": "Slug workspace AnythingLLM (nama workspace di URL)"
-                },
-                "anythingllm.excludePatterns": {
-                    "type": "array",
-                    "default": [
-                        "**/node_modules/**",
-                        "**/.git/**",
-                        "**/dist/**",
-                        "**/build/**",
-                        "**/.vscode/**",
-                        "**/out/**",
-                        "**/.next/**",
-                        "**/__pycache__/**",
-                        "**/*.pyc",
-                        "**/venv/**",
-                        "**/.env"
-                    ],
-                    "description": "Pattern folder/file yang dikecualikan dari scan"
-                },
-                "anythingllm.maxFileSize": {
-                    "type": "number",
-                    "default": 100000,
-                    "description": "Ukuran maksimal file (bytes) yang akan dibaca"
-                },
-                "anythingllm.autoSaveAfterEdit": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Auto-save file setelah AI edit"
-                },
-                "anythingllm.confirmBeforeEdit": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Minta konfirmasi sebelum AI edit file"
-                },
-                "anythingllm.enableAgentMode": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Enable AI Agent mode (multi-step tasks)"
-                }
-            }
-        }
-    },
-    "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
-        "package": "vsce package"
-    },
-    "devDependencies": {
-        "@types/minimatch": "^5.1.2",
-        "@types/node": "^20.19.43",
-        "@types/vscode": "1.85.0",
-        "@vscode/vsce": "^2.32.0",
-        "typescript": "^5.9.3"
-    },
-    "dependencies": {
-        "axios": "^1.18.0",
-        "glob": "^10.5.0",
-        "minimatch": "^10.2.5"
-    },
-    "menus": {
-      "editor/context": [
+          }
+        ]
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
         {
-          "when": "resourceLangId",
-          "command": "anythingllm.tagFile",
+          "id": "anythingllm-sidebar",
+          "title": "AnythingLLM",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "anythingllm-sidebar": [
+        {
+          "icon": "media/icon.png",
+          "id": "anythingllm.workspaces",
+          "name": "Workspaces"
+        },
+        {
+          "icon": "media/icon.png",
+          "id": "anythingllm.threads",
+          "name": "Threads"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "anythingllm.workspaces",
+        "contents": "No API key configured yet.\n[Configure API Key](command:anythingllm.setApiKey)\nOr set the Base URL first:\n[Set Base URL](command:anythingllm.setBaseUrl)\n\nOr open the full Chat Panel:\n[Open Chat Panel](command:anythingllm.openChatPanel)"
+      },
+      {
+        "view": "anythingllm.threads",
+        "contents": "No threads yet. Create one or start chatting:\n[Open Chat Panel](command:anythingllm.openChatPanel)\n[New Thread](command:anythingllm.newThread)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "anythingllm.setApiKey",
+        "title": "AnythingLLM: Set API Key",
+        "category": "AnythingLLM"
+      },
+      {
+        "command": "anythingllm.setBaseUrl",
+        "title": "AnythingLLM: Set Base URL",
+        "category": "AnythingLLM"
+      },
+      {
+        "command": "anythingllm.selectWorkspace",
+        "title": "AnythingLLM: Select Workspace",
+        "category": "AnythingLLM"
+      },
+      {
+        "command": "anythingllm.refreshWorkspaces",
+        "title": "AnythingLLM: Refresh Workspaces",
+        "category": "AnythingLLM",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "anythingllm.uploadActiveFile",
+        "title": "AnythingLLM: Upload Active File to Workspace",
+        "category": "AnythingLLM",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "anythingllm.newThread",
+        "title": "AnythingLLM: New Thread",
+        "category": "AnythingLLM",
+        "icon": "$(add)"
+      },
+      {
+        "command": "anythingllm.openSettings",
+        "title": "AnythingLLM: Open Settings",
+        "category": "AnythingLLM",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "anythingllm.showOutput",
+        "title": "AnythingLLM: Show Output Log",
+        "category": "AnythingLLM"
+      },
+      {
+        "command": "anythingllm.openChatPanel",
+        "title": "AnythingLLM: Open Chat Panel",
+        "category": "AnythingLLM",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "anythingllm.clearChat",
+        "title": "AnythingLLM: Clear Chat",
+        "category": "AnythingLLM",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "anythingllm.runAgent",
+        "title": "AnythingLLM: Run Agent (Tier 3)",
+        "category": "AnythingLLM",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "anythingllm.toggleAgentMode",
+        "title": "AnythingLLM: Toggle Agent Mode",
+        "category": "AnythingLLM",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "anythingllm.exportChat",
+        "title": "AnythingLLM: Export Chat",
+        "category": "AnythingLLM",
+        "icon": "$(export)"
+      },
+      {
+        "command": "anythingllm.showHistory",
+        "title": "AnythingLLM: Show Chat History",
+        "category": "AnythingLLM",
+        "icon": "$(history)"
+      },
+      {
+        "command": "anythingllm.workspaceDocuments",
+        "title": "AnythingLLM: Manage Workspace Documents",
+        "category": "AnythingLLM",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "anythingllm.showAgentRuns",
+        "title": "AnythingLLM: Show Agent Run History",
+        "category": "AnythingLLM",
+        "icon": "$(output)"
+      },
+      {
+        "command": "anythingllm.resetPermissions",
+        "title": "AnythingLLM: Reset Agent Tool Permissions",
+        "category": "AnythingLLM"
+      },
+      {
+        "command": "anythingllm.openDonate",
+        "title": "AnythingLLM: Support / Donate",
+        "category": "AnythingLLM",
+        "icon": "$(heart)"
+      },
+      {
+        "command": "anythingllm.embedDocument",
+        "title": "AnythingLLM: Embed Existing Document into Workspace",
+        "category": "AnythingLLM",
+        "icon": "$(link)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "anythingllm.openChatPanel",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "anythingllm.toggleAgentMode",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "anythingllm.openChatPanel",
+          "when": "view == anythingllm.workspaces || view == anythingllm.threads",
+          "group": "navigation@1"
+        },
+        {
+          "command": "anythingllm.refreshWorkspaces",
+          "when": "view == anythingllm.workspaces",
+          "group": "navigation@2"
+        },
+        {
+          "command": "anythingllm.openSettings",
+          "when": "view == anythingllm.workspaces",
+          "group": "navigation@3"
+        },
+        {
+          "command": "anythingllm.openDonate",
+          "when": "view == anythingllm.workspaces",
+          "group": "navigation@4"
+        },
+        {
+          "command": "anythingllm.newThread",
+          "when": "view == anythingllm.threads",
           "group": "navigation@2"
         }
       ],
-      "explorer/context": [
+      "view/item/context": [
         {
-          "command": "anythingllm.tagFile",
-          "group": "navigation@2"
+          "command": "anythingllm.selectWorkspace",
+          "when": "view == anythingllm.workspaces && viewItem == workspace",
+          "group": "inline"
+        },
+        {
+          "command": "anythingllm.uploadActiveFile",
+          "when": "view == anythingllm.workspaces && viewItem == workspace",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "anythingllm.uploadActiveFile",
+          "when": "editorTextFocus",
+          "group": "anythingllm@1"
         }
       ]
-    }
+    },
+    "configuration": {
+      "title": "AnythingLLM",
+      "properties": {
+        "anythingllm.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:3001/api",
+          "description": "Base URL of your AnythingLLM API instance (no trailing slash). Example: http://localhost:3001/api"
+        },
+        "anythingllm.defaultWorkspace": {
+          "type": "string",
+          "default": "",
+          "description": "Default workspace slug used when the user hasn't picked one."
+        },
+        "anythingllm.chatMode": {
+          "type": "string",
+          "enum": [
+            "chat",
+            "query"
+          ],
+          "enumDescriptions": [
+            "Chat: use LLM + RAG (default)",
+            "Query: document retrieval only, no LLM"
+          ],
+          "default": "chat",
+          "description": "Default mode when chatting with a workspace."
+        },
+        "anythingllm.requestTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Request timeout to the AnythingLLM API, in milliseconds."
+        },
+        "anythingllm.maxRetries": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum number of retries on request failure (5xx / network error)."
+        },
+        "anythingllm.enableTelemetry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local telemetry logging (request count, error count, latency). Does not send data to any third party."
+        },
+        "anythingllm.showCitations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show source document citations / references under chat responses."
+        },
+        "anythingllm.agentMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Tier 3 Agent mode by default. The agent will plan + execute tool calls autonomously for complex goals."
+        },
+        "anythingllm.uiTheme": {
+          "type": "string",
+          "enum": ["auto", "dark", "light"],
+          "default": "auto",
+          "description": "Chat Panel theme. Auto = follow VS Code's theme.",
+          "enumDescriptions": [
+            "Auto — follow VS Code's theme",
+            "Dark — force dark theme",
+            "Light — force light theme"
+          ]
+        },
+        "anythingllm.uiAccent": {
+          "type": "string",
+          "enum": ["blue", "purple", "green", "orange", "pink"],
+          "default": "blue",
+          "description": "Accent color for buttons, badges, citations, and the agent plan in the Chat Panel.",
+          "enumDescriptions": [
+            "Blue (#007acc)",
+            "Purple (#8b5cf6)",
+            "Green (#16a34a)",
+            "Orange (#ea580c)",
+            "Pink (#db2777)"
+          ]
+        },
+        "anythingllm.agentPlanner": {
+          "type": "string",
+          "enum": ["react", "heuristic", "llm", "native"],
+          "default": "react",
+          "description": "Planner strategy for the Agent. react = ReAct loop (Reason → Act → Observe), heuristic = pattern-match, llm = ask the LLM to produce a JSON plan, native = use the model's function-calling API.",
+          "enumDescriptions": [
+            "react — ReAct loop, most flexible (default)",
+            "heuristic — pattern-match intent, fast & deterministic",
+            "llm — ask the LLM to produce a JSON plan",
+            "native — use the model's native function-calling API"
+          ]
+        },
+        "anythingllm.agentMaxIterations": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum ReAct loop iterations before the agent is forced to synthesize a final answer."
+        },
+        "anythingllm.multiTurnContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send the last 10 messages as context to the LLM (multi-turn conversation)."
+        },
+        "anythingllm.thinkBlocksCollapsed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-collapse AI reasoning (<think> / chain-of-thought). Click to expand."
+        },
+        "anythingllm.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a status bar item (active workspace + agent mode + token count)."
+        },
+        "anythingllm.costBudgetUsd": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0,
+          "description": "Daily cost budget in USD. A warning appears when the estimated cost exceeds the budget."
+        },
+        "anythingllm.autoStartMcp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-start all enabled MCP servers when the extension activates."
+        },
+        "anythingllm.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "MCP (Model Context Protocol) server configurations. Each server runs as a child process with stdio JSON-RPC.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "description": "Unique ID for the server" },
+              "name": { "type": "string", "description": "Display name" },
+              "command": { "type": "string", "description": "Executable path, e.g. 'npx' or 'node'" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "env": { "type": "object", "additionalProperties": { "type": "string" } },
+              "enabled": { "type": "boolean", "default": true }
+            },
+            "required": ["id", "name", "command"]
+          }
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "anythingllm.welcome",
+        "title": "Welcome to AnythingLLM for VS Code",
+        "description": "Chat with your documents, leverage RAG, and run autonomous AI agents directly from VS Code.",
+        "steps": [
+          {
+            "id": "setup",
+            "title": "1. Configure API Access",
+            "description": "Set your AnythingLLM instance URL and API key.\n[Set API Key](command:anythingllm.setApiKey)\n[Set Base URL](command:anythingllm.setBaseUrl)",
+            "media": {
+              "markdown": "Configure your **AnythingLLM instance** URL and API key to get started.\n\n- Default Base URL: `http://localhost:3001/api`\n- API key is stored securely in VS Code SecretStorage (OS keychain)\n\nRun `AnythingLLM: Set API Key` from the Command Palette."
+            }
+          },
+          {
+            "id": "open-chat",
+            "title": "2. Open Chat Panel",
+            "description": "Open the AnythingLLM Chat Panel — your hub for chat, agent, and all features.\n[Open Chat Panel](command:anythingllm.openChatPanel)",
+            "media": {
+              "markdown": "Press **Ctrl+Shift+A** (Cmd+Shift+A on Mac) to open the Chat Panel.\n\nThe panel includes:\n- Workspace selector\n- Slash commands (Ask, Summarize, Explain, Search, Upload, Agent)\n- Streaming chat with citations\n- Comprehensive settings (6 tabs)"
+            }
+          },
+          {
+            "id": "agent-mode",
+            "title": "3. Try Agent Mode (Tier 3)",
+            "description": "Activate Agent Mode for autonomous multi-step task execution.\n[Toggle Agent Mode](command:anythingllm.toggleAgentMode)",
+            "media": {
+              "markdown": "Agent Mode runs a **ReAct loop** (Reason → Act → Observe) with 13 tools:\n\n- `vector_search` — search AnythingLLM documents\n- `file_read` / `file_write` — manipulate workspace files\n- `grep_search` — regex search with ripgrep\n- `terminal_exec` — run a shell command (with permission)\n- `web_fetch` — fetch a URL as context\n- `run_diagnostics` — pull VS Code diagnostics\n- `git_status` / `git_diff`\n- `mcp_call` — invoke an external MCP tool\n- And more\n\nTry: `🤖 Find documents about the leave policy and summarize the key points`"
+            }
+          },
+          {
+            "id": "explore-features",
+            "title": "4. Explore All Features",
+            "description": "Image upload, export chat, pin messages, MCP integration, and more.\n[Open Settings](command:anythingllm.openSettings)",
+            "media": {
+              "markdown": "Other features to explore:\n\n- 🖼️ **Image upload** — drag & drop or paste images\n- 💾 **Export chat** — to Markdown or JSON\n- 📌 **Pin messages** — important messages survive Clear\n- 🗂️ **Workspace Documents** — manage workspace documents\n- 🤖 **Agent Run History** — audit log of agent executions\n- 🔌 **MCP** — Model Context Protocol for external tools\n- 📊 **Token tracker** — token & cost estimation\n- 💭 **Collapsible think blocks** — AI reasoning hidden by default, click to expand"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --preserverWatchOutput",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "@typescript-eslint/parser": "^8.10.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.13.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.62.0"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "mocha": "^11.5.0",
+    "diff": "^8.0.3"
+  }
 }
